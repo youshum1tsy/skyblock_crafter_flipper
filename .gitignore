@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+env/
+
+# Конфигурации и секреты
+config.py
+.env
+
+# Данные и кэш
+data/items/
+*.log
+.DS_Store
+
+# Иде и редакторы
+.vscode/
+.idea/
