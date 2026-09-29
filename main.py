@@ -19,9 +19,9 @@ if itemsBytes is not None:
     print("from server")
     data_manager.writeItems(itemsBytes, itemsDir, itemsDirTemp)
     data_manager.writeETag(newETag, eTagDir, eTagFileName)
-    items = data_manager.loadDataItems(itemsDir)
+    itemsDb = data_manager.loadDataItems(itemsDir)
 elif newETag == oldETag and newETag is not None:
-    items = data_manager.loadDataItems(itemsDir)
+    itemsDb = data_manager.loadDataItems(itemsDir)
     print("from data")
 else:
     print("error")
