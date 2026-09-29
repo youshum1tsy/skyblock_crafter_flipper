@@ -11,6 +11,8 @@ config.py
 
 # Данные и кэш
 data/items/
+data/pricesAh/
+data/pricesBz/
 data/etag.txt
 *.log
 .DS_Store
