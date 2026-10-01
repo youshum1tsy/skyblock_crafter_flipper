@@ -54,11 +54,17 @@ itemBzPricesDir = "data/pricesBz/"
 itemBzPricesExt = ".json"
 itemBzPricesPath = f"{itemBzPricesDir}bz{itemBzPricesExt}"
 itemBzPricesDb = {}
+
+client = api.HypixelClient(apiKey=config.hypixelApiToken)
+
 if data_manager.isCacheExpired(itemBzPricesPath):
-    itemBzPricesDb = api.fetchBzPrices(config.hypixelApiToken)
+    itemBzPricesDb = client.getBazaarPrices()
     data_manager.savePrice(itemBzPricesDb, itemBzPricesDir, itemBzPricesPath)
     print("BZ FROM API")
 else:
     itemBzPricesDb = data_manager.loadPrice(itemBzPricesPath)
     print("BZ FROM FILE")
+
 print(itemBzPricesDb.get("success"))
+soulboundItemsDb = client.getSkyblockItems()
+print(soulboundItemsDb)  # id : true, false
