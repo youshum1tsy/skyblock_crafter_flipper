@@ -1,33 +1,30 @@
 from src import data_manager, calculator, api
 import config
 
-eTagDir = "data/"
-eTagFileName = "eTag.txt"
-oldETag = data_manager.readETag(eTagDir, eTagFileName)
+dataManager = data_manager.Data()
 
-itemsBytes, newETag = api.fetchItems(oldETag)
+itemsBytes, newETag = api.fetchItems(dataManager.oldETag)
 
-itemsDir = "data/items/"
-itemsDirTemp = "data/items_temp/"
-itemsDb = {}
-totalCost = {}
-craftSteps = {}
 findItem = "SUPER_COMPACTOR_3000"
 amount = 1
+totalCost = {}
+craftSteps = {}
 
 if itemsBytes is not None:
     print("from server")
-    data_manager.writeItems(itemsBytes, itemsDir, itemsDirTemp)
-    data_manager.writeETag(newETag, eTagDir, eTagFileName)
-    itemsDb = data_manager.loadDataItems(itemsDir)
-elif newETag == oldETag and newETag is not None:
-    itemsDb = data_manager.loadDataItems(itemsDir)
+    dataManager.writeItems(itemsBytes)
+    dataManager.writeETag(newETag)
+    dataManager.loadDataItems()
+elif newETag == dataManager.oldETag and newETag is not None:
+    dataManager.loadDataItems()
     print("from data")
 else:
     print("error")
 
-stopList = calculator.findCyclicItems(findItem, itemsDb)
-calculator.calculate_craft(findItem, amount, stopList, itemsDb, totalCost, craftSteps)
+stopList = calculator.findCyclicItems(findItem, dataManager.itemsDb)
+calculator.calculate_craft(
+    findItem, amount, stopList, dataManager.itemsDb, totalCost, craftSteps
+)
 
 for item, count in totalCost.items():
     print(item, count)
@@ -35,36 +32,29 @@ for item, count in totalCost.items():
 for item, count in reversed(list(craftSteps.items())):
     print(f"Craft {item}, amount:{count}")
 
-
-itemAhPricesDir = "data/pricesAh/"
-itemAhPricesExt = ".json"
-itemAhPricesPath = itemAhPricesDir + findItem + itemAhPricesExt
-itemAhPricesDb = {}
-if data_manager.isCacheExpired(itemAhPricesPath):
-    itemAhPricesDb = api.fetchAhPrices(findItem, config.skyCoflApiToken)
-    data_manager.savePrice(itemAhPricesDb, itemAhPricesDir, itemAhPricesPath)
+ahFilePath = dataManager.AH_DIR / f"{findItem}.json"
+if dataManager.isCacheExpired(ahFilePath):
+    dataManager.itemAhPricesDb = api.fetchAhPrices(findItem, config.skyCoflApiToken)
+    dataManager.savePrice(dataManager.itemAhPricesDb, dataManager.AH_DIR, ahFilePath)
     print("AH FROM API")
 else:
-    itemAhPricesDb = data_manager.loadPrice(itemAhPricesPath)
+    dataManager.itemAhPricesDb = dataManager.loadPrice(ahFilePath)
     print("AH FROM FILE")
-print(itemAhPricesDb[0])
-data_manager.savePrice(itemAhPricesDb, itemAhPricesDir, itemAhPricesPath)
-
-itemBzPricesDir = "data/pricesBz/"
-itemBzPricesExt = ".json"
-itemBzPricesPath = f"{itemBzPricesDir}bz{itemBzPricesExt}"
-itemBzPricesDb = {}
+print(dataManager.itemAhPricesDb[0])
 
 client = api.HypixelClient(apiKey=config.hypixelApiToken)
 
-if data_manager.isCacheExpired(itemBzPricesPath):
-    itemBzPricesDb = client.getBazaarPrices()
-    data_manager.savePrice(itemBzPricesDb, itemBzPricesDir, itemBzPricesPath)
+if dataManager.isCacheExpired(dataManager.BZ_FILE_PATH):
+    dataManager.itemBzPricesDb = client.getBazaarPrices()
+    dataManager.savePrice(
+        dataManager.itemBzPricesDb,
+        dataManager.BZ_DIR,
+        dataManager.BZ_FILE_PATH,
+    )
     print("BZ FROM API")
 else:
-    itemBzPricesDb = data_manager.loadPrice(itemBzPricesPath)
+    dataManager.itemBzPricesDb = dataManager.loadPrice(dataManager.BZ_FILE_PATH)
     print("BZ FROM FILE")
 
-print(itemBzPricesDb.get("success"))
 soulboundItemsDb = client.getSkyblockItems()
 print(soulboundItemsDb)  # id : true, false
