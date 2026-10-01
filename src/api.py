@@ -1,6 +1,30 @@
 import requests
 
 
+class HypixelClient:
+    BASE_URL = "https://api.hypixel.net/v2"
+
+    def __init__(self, apiKey: str):
+        self.session = requests.Session()
+        self.session.headers.update({"API-Key": apiKey})
+
+    def _makeRequest(self, endpoint: str) -> dict:
+        url = f"{self.BASE_URL}/{endpoint}"
+        try:
+            r = self.session.get(url)
+            r.raise_for_status()
+            return r.json()
+        except requests.RequestException as e:
+            print(f"Error requesting {url}: {e}")
+            return {}
+
+    def getBazaarPrices(self):
+        return self._makeRequest("skyblock/bazaar")
+
+    def getSkyblockItems(self):
+        return self._makeRequest("resources/skyblock/items")
+
+
 def fetchItems(eTag: str) -> tuple[bytes | None, str | None]:
     headers = {"Accept": "application/vnd.github+json", "If-None-Match": eTag}
     OWNER = "NotEnoughUpdates"
@@ -29,15 +53,4 @@ def fetchAhPrices(findItem: str, skyCoflToken: str) -> dict:
         return r.json()
     except requests.RequestException as e:
         print(f"Error with API, url: {url}, for item: {findItem}: {e}")
-        return {}
-
-
-def fetchBzPrices(hypixelToken: str) -> dict:
-    url = f"https://api.hypixel.net/v2/skyblock/bazaar"
-    headers = {"API-Key": hypixelToken}
-    try:
-        r = requests.get(url, headers=headers)
-        return r.json()
-    except requests.RequestException as e:
-        print(f"Error with API, url: {url}, ex: {e}")
         return {}
