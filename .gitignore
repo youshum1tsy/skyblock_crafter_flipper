@@ -10,7 +10,8 @@ config.py
 .env
 
 # Данные и кэш
-data/items/
+data/itemsRecipes/
+data/itemsRegistry/
 data/pricesAh/
 data/pricesBz/
 data/etag.txt
