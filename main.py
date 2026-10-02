@@ -5,56 +5,69 @@ dataManager = data_manager.Data()
 
 itemsBytes, newETag = api.fetchItems(dataManager.oldETag)
 
-findItem = "SUPER_COMPACTOR_3000"
+print("get items Recipes")
+if itemsBytes is None and dataManager.RECIPES_DIR.is_dir():
+    dataManager.loadRecipes()
+    print("from data")
+else:
+    if itemsBytes is None:
+        itemsBytes, newETag = api.fetchItems(eTag="")
+    print("from server")
+    dataManager.unpackRecipes(itemsBytes)
+    dataManager.writeETag(newETag)
+    dataManager.loadRecipes()
+
+
+findItem = "TERMINATOR"
 amount = 1
 totalCost = {}
 craftSteps = {}
 
-if itemsBytes is not None:
-    print("from server")
-    dataManager.writeItems(itemsBytes)
-    dataManager.writeETag(newETag)
-    dataManager.loadDataItems()
-elif newETag == dataManager.oldETag and newETag is not None:
-    dataManager.loadDataItems()
-    print("from data")
-else:
-    print("error")
-
-stopList = calculator.findCyclicItems(findItem, dataManager.itemsDb)
+print("calc stop list")
+stopList = calculator.findCyclicItems(findItem, dataManager.itemRecipesDb)
+print("calc craft")
 calculator.calculate_craft(
-    findItem, amount, stopList, dataManager.itemsDb, totalCost, craftSteps
+    findItem, amount, stopList, dataManager.itemRecipesDb, totalCost, craftSteps
 )
 
-for item, count in totalCost.items():
-    print(item, count)
 
-for item, count in reversed(list(craftSteps.items())):
-    print(f"Craft {item}, amount:{count}")
+for itemRaw, count in totalCost.items():
+    print(itemRaw, count)
 
+for itemRaw, count in reversed(list(craftSteps.items())):
+    print(f"Craft {itemRaw}, amount:{count}")
+
+
+print("get ah")
 ahFilePath = dataManager.AH_DIR / f"{findItem}.json"
 if dataManager.isCacheExpired(ahFilePath):
     dataManager.itemAhPricesDb = api.fetchAhPrices(findItem, config.skyCoflApiToken)
-    dataManager.savePrice(dataManager.itemAhPricesDb, dataManager.AH_DIR, ahFilePath)
+    dataManager.saveJson(dataManager.itemAhPricesDb, ahFilePath)
     print("AH FROM API")
 else:
-    dataManager.itemAhPricesDb = dataManager.loadPrice(ahFilePath)
+    dataManager.itemAhPricesDb = dataManager.loadJson(ahFilePath)
     print("AH FROM FILE")
 print(dataManager.itemAhPricesDb[0])
 
 client = api.HypixelClient(apiKey=config.hypixelApiToken)
-
+print("get bz")
 if dataManager.isCacheExpired(dataManager.BZ_FILE_PATH):
     dataManager.itemBzPricesDb = client.getBazaarPrices()
-    dataManager.savePrice(
+    dataManager.saveJson(
         dataManager.itemBzPricesDb,
-        dataManager.BZ_DIR,
         dataManager.BZ_FILE_PATH,
     )
     print("BZ FROM API")
 else:
-    dataManager.itemBzPricesDb = dataManager.loadPrice(dataManager.BZ_FILE_PATH)
+    dataManager.itemBzPricesDb = dataManager.loadJson(dataManager.BZ_FILE_PATH)
     print("BZ FROM FILE")
-
-soulboundItemsDb = client.getSkyblockItems()
-print(soulboundItemsDb)  # id : true, false
+print("get registry")
+if dataManager.isCacheExpired(dataManager.REGISTRY_FILE_PATH, cacheDuration=24):
+    dataManager.itemRegistryDb = client.getSkyblockItems()
+    dataManager.saveJson(dataManager.itemRegistryDb, dataManager.REGISTRY_FILE_PATH)
+    dataManager.filterRegistry()
+    print("SOULBOUND FROM API")
+else:
+    dataManager.itemRegistryDb = dataManager.loadJson(dataManager.REGISTRY_FILE_PATH)
+    dataManager.filterRegistry()
+    print("SOULBOUND FROM FILE")
