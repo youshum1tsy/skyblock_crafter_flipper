@@ -45,7 +45,7 @@ def fetchItems(eTag: str) -> tuple[bytes | None, str | None]:
 
 
 def fetchAhPrices(findItem: str, skyCoflToken: str) -> dict:
-    url = f"https://sky.coflnet.com/api/item/price/{findItem}/history/day"
+    url = f"https://sky.coflnet.com/api/item/price/{findItem}"
     headers = {"Authorization": f"Bearer {skyCoflToken}"}
     filters = {"Clean": "yes"}
     try:
