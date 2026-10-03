@@ -5,18 +5,23 @@ from datetime import datetime, timedelta
 class Data:
     BASE_DIR = pathlib.Path("data")
     ETAG_PATH = BASE_DIR / "eTag.txt"
-    ITEMS_DIR = BASE_DIR / "items"
-    ITEMS_TEMP_DIR = BASE_DIR / "items_temp"
+
+    RECIPES_DIR = BASE_DIR / "itemsRecipes"
+    RECIPES_TEMP_DIR = BASE_DIR / "itemsRecipes_temp"
 
     AH_DIR = BASE_DIR / "pricesAh"
     BZ_DIR = BASE_DIR / "pricesBz"
+    REGISTRY_DIR = BASE_DIR / "itemsRegistry"
 
     BZ_FILE_PATH = BZ_DIR / "bz.json"
+    REGISTRY_FILE_PATH = REGISTRY_DIR / "registry.json"
 
     def __init__(self):
-        self.itemsDb = {}
+        self.itemRecipesDb = {}
         self.itemAhPricesDb = {}
         self.itemBzPricesDb = {}
+        self.itemRegistryDb = {}
+        self.notAuctionableIds = set()
         self.oldETag = self.readETag()
 
     def readETag(self) -> str:
@@ -27,58 +32,67 @@ class Data:
     def writeETag(self, newETag: str) -> None:
         self.ETAG_PATH.write_text(newETag, encoding="utf-8")
 
-    def writeItems(self, itemsBytes: bytes) -> None:
+    def unpackRecipes(self, itemsBytes: bytes) -> None:
         itemsBuff = io.BytesIO(itemsBytes)
 
-        if self.ITEMS_TEMP_DIR.is_dir():
-            shutil.rmtree(str(self.ITEMS_TEMP_DIR))
-        self.ITEMS_TEMP_DIR.mkdir(parents=True, exist_ok=True)
+        if self.RECIPES_TEMP_DIR.is_dir():
+            shutil.rmtree(str(self.RECIPES_TEMP_DIR))
+        self.RECIPES_TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
         with zipfile.ZipFile(itemsBuff) as itemsZip:
             allZipPath = itemsZip.namelist()
             for path in allZipPath:
                 if "/items/" in path and not (path.endswith("/")):
                     itemsFileName = path.split("/items/")[1]
-                    filepath = self.ITEMS_TEMP_DIR / itemsFileName
-                    with open(filepath, "wb") as file:
-                        file.write(itemsZip.read(path))
+                    filepath = self.RECIPES_TEMP_DIR / itemsFileName
+                    filepath.write_bytes(itemsZip.read(path))
 
-        if self.ITEMS_DIR.is_dir():
-            shutil.rmtree(str(self.ITEMS_DIR))
-        os.rename(str(self.ITEMS_TEMP_DIR), str(self.ITEMS_DIR))
+        if self.RECIPES_DIR.is_dir():
+            shutil.rmtree(str(self.RECIPES_DIR))
+        self.RECIPES_TEMP_DIR.rename(self.RECIPES_DIR)
 
-    def loadDataItems(self) -> None:
-        for filePath in self.ITEMS_DIR.iterdir():
+    def loadRecipes(self) -> None:
+        for filePath in self.RECIPES_DIR.iterdir():
             if filePath.is_file():
-                with open(file=(str(filePath)), mode="r", encoding="utf-8") as f:
-                    data = json.load(f)
+                data = json.loads(filePath.read_text(encoding="utf-8"))
                 itemName = filePath.stem
-                if data.get("recipe") != None:
-                    self.itemsDb.update({itemName: data.get("recipe")})
-                elif data.get("recipes") != None:
-                    self.itemsDb.update({itemName: data.get("recipes")})
+                if data.get("recipe") is not None:
+                    self.itemRecipesDb.update({itemName: data.get("recipe")})
+                elif data.get("recipes") is not None:
+                    self.itemRecipesDb.update({itemName: data.get("recipes")})
 
     def isCacheExpired(
         self,
-        itemPricesPath: pathlib.Path,
-        cacheDuration: timedelta = timedelta(hours=1),
+        filePath: pathlib.Path,
+        cacheDuration: timedelta | int = timedelta(hours=1),
     ) -> bool:
-        if not itemPricesPath.is_file():
+
+        if isinstance(cacheDuration, int):
+            cacheDuration = timedelta(hours=cacheDuration)
+
+        if not filePath.is_file():
             return True
-        mtime = os.path.getmtime(itemPricesPath)
+        mtime = filePath.stat().st_mtime
         fileDate = datetime.fromtimestamp(mtime)
         return datetime.now() - fileDate > cacheDuration
 
-    def savePrice(
-        self, itemPrices: dict, itemPricesDir: pathlib.Path, itemPricePath: pathlib.Path
-    ):
-        itemPricesDir.mkdir(parents=True, exist_ok=True)
+    def saveJson(self, dataDict: dict, filePath: pathlib.Path):
+        filePath.parent.mkdir(parents=True, exist_ok=True)
+        filePath.write_text(json.dumps(dataDict, indent=2), encoding="utf-8")
 
-        with open(str(itemPricePath), mode="w", encoding="utf-8") as file:
-            json.dump(itemPrices, file, indent=2)
+    def loadJson(self, filePath: pathlib.Path) -> dict:
+        if not filePath.is_file():
+            return {}
+        return json.loads(filePath.read_text(encoding="utf-8"))
 
-    def loadPrice(self, itemPricePath: pathlib.Path) -> dict:
-        prices = {}
-        with open(str(itemPricePath), mode="r", encoding="utf-8") as f:
-            prices = json.load(f)
-        return prices
+    def filterRegistry(self):
+        itemList = self.itemRegistryDb.get("items")
+        for item in itemList:
+            if (
+                (item.get("soulbound") is not None)
+                or (item.get("can_auction") == False)
+                or (item.get("can_trade") == False)
+                or (item.get("category") == "SACK")
+                or ("_GENERATOR_" in item.get("id"))
+            ):
+                self.notAuctionableIds.add(item.get("id"))
