@@ -44,7 +44,6 @@ def getRegistryData():
         print("SOULBOUND FROM FILE")
 
 
-print("get items Recipes")
 if itemsBytes is None and dataManager.RECIPES_DIR.is_dir():
     dataManager.loadRecipes()
     print("from data")
@@ -57,33 +56,19 @@ else:
     dataManager.loadRecipes()
 
 
-findItem = "ASPECT_OF_THE_END"
+findItem = "ENCHANTED_GOLD_BLOCK"
 craftAmount = 5
 totalCost = {}
 craftSteps = {}
 
-print("calc stop list")
 stopList = calculator.findCyclicItems(findItem, dataManager.itemRecipesDb)
-print("calc craft")
 calculator.calculate_craft(
     findItem, craftAmount, stopList, dataManager.itemRecipesDb, totalCost, craftSteps
 )
-"""
-for itemRaw, count in totalCost.items():
-    print(itemRaw, count)
 
-for itemRaw, count in reversed(list(craftSteps.items())):
-    print(f"Craft {itemRaw}, amount:{count}")
-"""
-
-print("get ah")
 getAhData(findItem)
-
 client = api.HypixelClient(apiKey=config.hypixelApiToken)
-print("get bz")
 getBzData()
-
-print("get registry")
 getRegistryData()
 
 PREFIXS = (
@@ -96,9 +81,18 @@ TAX = 0.0125
 SAFETY_MARGIN = 1.01
 totalRecipeCost = 0
 
+
 bzProducts = dataManager.itemBzPricesDb.get("products")
 targetItemPrice = dataManager.itemAhPricesDb.get("median", 0)
 targetItemVolume = dataManager.itemAhPricesDb.get("volume", 0)
+
+if bzProducts.get(findItem) is not None:
+    targetItemPrice = bzProducts.get("quick_status").get("sellPrice", 0)
+    targetItemVolume = bzProducts.get("quick_status").get("sellVolume", 0)
+    print(f"--- BZ ---")
+else:
+    print(f"--- AH ---")
+
 print(f"--- Analyse craft: {findItem} ---")
 print(f"Median: {targetItemPrice:,.0f} ---")
 
