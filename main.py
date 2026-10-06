@@ -1,12 +1,8 @@
-from src import data_manager, calculator, api
+from src import data_manager, calculator, api, utils
 import config
 
-dataManager = data_manager.Data()
 
-itemsBytes, newETag = api.fetchItems(dataManager.oldETag)
-
-
-def getAhData(findItem):
+def getAhData(findItem, dataManager: data_manager.Data):
     ahFilePath = dataManager.AH_DIR / f"{findItem}.json"
     if dataManager.isCacheExpired(ahFilePath):
         dataManager.itemAhPricesDb = api.fetchAhPrices(findItem, config.skyCoflApiToken)
@@ -17,7 +13,7 @@ def getAhData(findItem):
         print("AH FROM FILE")
 
 
-def getBzData():
+def getBzData(client, dataManager: data_manager.Data):
     if dataManager.isCacheExpired(dataManager.BZ_FILE_PATH):
         dataManager.itemBzPricesDb = client.getBazaarPrices()
         dataManager.saveJson(
@@ -30,7 +26,7 @@ def getBzData():
         print("BZ FROM FILE")
 
 
-def getRegistryData():
+def getRegistryData(client, dataManager: data_manager.Data):
     if dataManager.isCacheExpired(dataManager.REGISTRY_FILE_PATH, cacheDuration=24):
         dataManager.itemRegistryDb = client.getSkyblockItems()
         dataManager.saveJson(dataManager.itemRegistryDb, dataManager.REGISTRY_FILE_PATH)
@@ -44,32 +40,27 @@ def getRegistryData():
         print("SOULBOUND FROM FILE")
 
 
-if itemsBytes is None and dataManager.RECIPES_DIR.is_dir():
-    dataManager.loadRecipes()
-    print("from data")
-else:
-    if itemsBytes is None:
-        itemsBytes, newETag = api.fetchItems(eTag="")
-    print("from server")
-    dataManager.unpackRecipes(itemsBytes)
-    dataManager.writeETag(newETag)
-    dataManager.loadRecipes()
+def getRecipeData(itemsBytes, newETag, dataManager: data_manager.Data):
+    if itemsBytes is None and dataManager.RECIPES_DIR.is_dir():
+        dataManager.loadRecipes()
+        print("RECIPE FROM FILE")
+    else:
+        if itemsBytes is None:
+            itemsBytes, newETag = api.fetchItems(eTag="")
+        print("RECIPE FROM API")
+        dataManager.unpackRecipes(itemsBytes)
+        dataManager.writeETag(newETag)
+        dataManager.loadRecipes()
 
 
-findItem = "ENCHANTED_GOLD_BLOCK"
-craftAmount = 5
-totalCost = {}
-craftSteps = {}
-
-stopList = calculator.findCyclicItems(findItem, dataManager.itemRecipesDb)
-calculator.calculate_craft(
-    findItem, craftAmount, stopList, dataManager.itemRecipesDb, totalCost, craftSteps
-)
-
-getAhData(findItem)
 client = api.HypixelClient(apiKey=config.hypixelApiToken)
-getBzData()
-getRegistryData()
+dataManager = data_manager.Data()
+itemsBytes, newETag = api.fetchItems(dataManager.oldETag)
+
+getRecipeData(itemsBytes, newETag, dataManager)
+getBzData(client, dataManager)
+getRegistryData(client, dataManager)
+
 
 PREFIXS = (
     "INK_SACK-",
@@ -82,19 +73,29 @@ SAFETY_MARGIN = 1.01
 totalRecipeCost = 0
 
 
+findItem = "ENCHANTED_GOLD_BLOCK"
+craftAmount = 100
+totalCost = {}
+craftSteps = {}
+stopList = calculator.findCyclicItems(findItem, dataManager.itemRecipesDb)
+calculator.calculate_craft(
+    findItem, craftAmount, stopList, dataManager.itemRecipesDb, totalCost, craftSteps
+)
+# buyorderMax = 71680
+
 bzProducts = dataManager.itemBzPricesDb.get("products")
 targetItemPrice = dataManager.itemAhPricesDb.get("median", 0)
 targetItemVolume = dataManager.itemAhPricesDb.get("volume", 0)
 
 if bzProducts.get(findItem) is not None:
-    targetItemPrice = bzProducts.get("quick_status").get("sellPrice", 0)
-    targetItemVolume = bzProducts.get("quick_status").get("sellVolume", 0)
+    targetItemPrice = bzProducts.get(findItem).get("quick_status").get("sellPrice", 0)
+    targetItemVolume = bzProducts.get(findItem).get("quick_status").get("sellVolume", 0)
     print(f"--- BZ ---")
 else:
     print(f"--- AH ---")
 
 print(f"--- Analyse craft: {findItem} ---")
-print(f"Median: {targetItemPrice:,.0f} ---")
+print(f"Median: {utils.format(targetItemPrice)} ---")
 
 for item, amount in totalCost.items():
     if item.startswith(PREFIXS):
@@ -110,15 +111,19 @@ for item, amount in totalCost.items():
         fairPrice = sellPrice + (0.1 * (buyPrice - sellPrice))
         cost = amount * fairPrice
         totalRecipeCost += cost
-        print(f"Item: {item} | for 1 {fairPrice:.2f} | cost: {cost}")
+        print(
+            f"Item: {item} | for 1: {utils.format(fairPrice)} | buy: {utils.format(amount)} | cost: {utils.format(cost)}"
+        )
     elif item in dataManager.notAuctionableIds:
-        print(f"Item: {item} | Amount: {amount} | Soulbound (cost 0)")
+        print(f"Item: {item} | Amount: {utils.format(amount)} | Soulbound (cost 0)")
     else:
-        getAhData(item)
+        getAhData(item, dataManager)
         ahPrice = dataManager.itemAhPricesDb.get("median", 0)
         cost = amount * ahPrice
         totalRecipeCost += cost
-        print(f"Item: {item} {ahPrice} from ah | cost: {cost:.0f}")
+        print(
+            f"Item: {item} | from ah: {utils.format(ahPrice)} | cost: {utils.format(cost)}"
+        )
 
 totalRecipeCost *= SAFETY_MARGIN
 netRevue = targetItemPrice * craftAmount * (1 - TAX)
@@ -127,10 +132,10 @@ profit = netRevue - totalRecipeCost
 roi = (profit / totalRecipeCost) * 100 if totalRecipeCost > 0 else 0
 
 print("-" * 30)
-print(f"Cost: {totalRecipeCost:.0f}")
-print(f"Revenue: {netRevue:.0f}")
-print(f"Profit: {profit:0f}")
-print(f"Volume: {targetItemVolume}")
+print(f"Cost: {utils.format(totalRecipeCost)}")
+print(f"Revenue: {utils.format(netRevue)}")
+print(f"Profit: {utils.format(profit)}")
+print(f"Volume: {utils.format(targetItemVolume)}")
 print(f"ROI: {roi:.2f}%")
 
 if profit > 0 and roi > 3:
