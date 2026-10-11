@@ -1,5 +1,5 @@
 from src import data_manager, calculator, api, utils
-import config
+import config, operator
 
 
 def getAhData(findItem, dataManager: data_manager.Data):
@@ -62,83 +62,152 @@ getBzData(client, dataManager)
 getRegistryData(client, dataManager)
 
 
-PREFIXS = (
-    "INK_SACK-",
-    "LOG-1",
-    "LOG_2-1",
-)
+class ItemProfitStats:
+    def __init__(self):
+        self.totalRecipeCost = 0.0
+        self.netRevue = 0.0
+        self.profit = 0.0
+        self.roi = 0.0
+        self.targetItemVolume = 0.0
+        self.targetItemPrice = 0.0
+        self.maxLiqidityHours = 0.0
+        self.profitPerHours = 0.0
+        self.competitivenessScore = 0.0
+
+
+def analyzeSingleCraft(itemId, amount, dataManager, bzProducts, recipesDb):
+
+    totalCost = {}
+    craftSteps = {}
+
+    stopList = calculator.findCyclicItems(itemId, recipesDb)
+    calculator.calculate_craft(
+        itemId, amount, stopList, recipesDb, totalCost, craftSteps
+    )
+
+    targetItemInfo = bzProducts.get(itemId)
+    if not targetItemInfo:
+        return None
+
+    qs = targetItemInfo.get("quick_status", {})
+    targetItemPrice = qs.get("sellPrice", 0)
+
+    stats = ItemProfitStats()
+    stats.targetItemVolume = qs.get("sellVolume", 0)
+    stats.targetItemPrice = targetItemPrice
+
+    targetWeeklyVolume = max(qs.get("sellMovingWeek", 1), 1)
+    targetHourlySales = max(targetWeeklyVolume / 168, 0.1)
+    targetActiveSellers = qs.get("sellOrders", 0)
+    stats.competitivenessScore = targetActiveSellers / targetHourlySales
+
+    print(30 * "-")
+    print(f"ITEM: {itemId}")
+    for item, reqAmount in totalCost.items():
+        key = ":".join(item.split("-", 1)) if item.startswith(PREFIXS) else item
+        itemBz = bzProducts.get(key)
+
+        if itemBz is not None:
+            sellOrders = itemBz.get("sell_summary", [])
+            bestSellPrice = (
+                sellOrders[0].get("pricePerUnit")
+                if sellOrders
+                else itemBz.get("quick_status").get("sellPrice")
+            )
+            weeklyVolume = itemBz.get("quick_status").get("buyMovingWeek", 1)
+            if weeklyVolume < 300:
+                continue
+            hoursNeeded = (reqAmount / max(weeklyVolume, 1)) * 168
+            stats.maxLiqidityHours = max(stats.maxLiqidityHours, hoursNeeded)
+
+            fairPrice = bestSellPrice * 1.01
+            cost = reqAmount * fairPrice
+            stats.totalRecipeCost += cost
+            print(
+                f"Item: {item} | for 1 (bz): {utils.format(fairPrice)} | buy: {utils.format(reqAmount)} | cost: {utils.format(cost)}"
+            )
+
+        elif key in dataManager.notAuctionableIds:
+            print(
+                f"Item: {item} | Amount: {utils.format(reqAmount)} | Soulbound (cost 0 )"
+            )
+            continue
+        else:
+            getAhData(key, dataManager)
+            ahPrice = dataManager.itemAhPricesDb.get("median", 0)
+            cost = reqAmount * ahPrice
+            stats.totalRecipeCost += cost
+            print(
+                f"Item: {item} | from ah: {utils.format(ahPrice)} | cost: {utils.format(cost)}"
+            )
+
+    stats.totalRecipeCost *= SAFETY_MARGIN
+    stats.netRevue = targetItemPrice * craftAmount * (1 - TAX)
+    stats.profit = stats.netRevue - stats.totalRecipeCost
+    stats.profitPerHours = stats.profit / max(stats.maxLiqidityHours, 0.5)
+    stats.roi = (
+        (stats.profit / stats.totalRecipeCost) * 100 if stats.totalRecipeCost > 0 else 0
+    )
+    for key, value in craftSteps.items():
+        print(f"craft {key}, amount: {value}")
+    return stats
+
+
+PREFIXS = ("INK_SACK-", "LOG-", "LOG_2-1", "RAW_FISH-", "SAND-")
 
 TAX = 0.0125
 SAFETY_MARGIN = 1.01
-totalRecipeCost = 0
+# totalRecipeCost = 0
 
-
-findItem = "ENCHANTED_GOLD_BLOCK"
-craftAmount = 100
-totalCost = {}
-craftSteps = {}
-stopList = calculator.findCyclicItems(findItem, dataManager.itemRecipesDb)
-calculator.calculate_craft(
-    findItem, craftAmount, stopList, dataManager.itemRecipesDb, totalCost, craftSteps
-)
-# buyorderMax = 71680
-
+craftAmount = 1000
 bzProducts = dataManager.itemBzPricesDb.get("products")
-targetItemPrice = dataManager.itemAhPricesDb.get("median", 0)
-targetItemVolume = dataManager.itemAhPricesDb.get("volume", 0)
+bzItemsLen = len(bzProducts)
+bzItemsCount = 0
+bestBzItems = {}
+for findItem in bzProducts:
+    vol = bzProducts.get(findItem, {}).get("quick_status", {}).get("sellMovingWeek", 0)
 
-if bzProducts.get(findItem) is not None:
-    targetItemPrice = bzProducts.get(findItem).get("quick_status").get("sellPrice", 0)
-    targetItemVolume = bzProducts.get(findItem).get("quick_status").get("sellVolume", 0)
-    print(f"--- BZ ---")
-else:
-    print(f"--- AH ---")
+    if vol < 500:
+        continue
 
-print(f"--- Analyse craft: {findItem} ---")
-print(f"Median: {utils.format(targetItemPrice)} ---")
+    stats = analyzeSingleCraft(
+        findItem, craftAmount, dataManager, bzProducts, dataManager.itemRecipesDb
+    )
 
-for item, amount in totalCost.items():
-    if item.startswith(PREFIXS):
-        item = ":".join(item.split("-", 1))
-
-    itemBz = bzProducts.get(item)
-
-    if itemBz is not None:
-        qs = itemBz.get("quick_status")
-        buyPrice = qs.get("buyPrice")
-        sellPrice = qs.get("sellPrice")
-
-        fairPrice = sellPrice + (0.1 * (buyPrice - sellPrice))
-        cost = amount * fairPrice
-        totalRecipeCost += cost
-        print(
-            f"Item: {item} | for 1: {utils.format(fairPrice)} | buy: {utils.format(amount)} | cost: {utils.format(cost)}"
-        )
-    elif item in dataManager.notAuctionableIds:
-        print(f"Item: {item} | Amount: {utils.format(amount)} | Soulbound (cost 0)")
+    if stats and stats.profit > 0 and stats.roi > 3:
+        bestBzItems[findItem] = stats
+        print(f"Good craft: {findItem} | ROI: {stats.roi:.2f}%")
     else:
-        getAhData(item, dataManager)
-        ahPrice = dataManager.itemAhPricesDb.get("median", 0)
-        cost = amount * ahPrice
-        totalRecipeCost += cost
-        print(
-            f"Item: {item} | from ah: {utils.format(ahPrice)} | cost: {utils.format(cost)}"
-        )
+        print(f"Bad craft: {findItem} ")
 
-totalRecipeCost *= SAFETY_MARGIN
-netRevue = targetItemPrice * craftAmount * (1 - TAX)
-profit = netRevue - totalRecipeCost
 
-roi = (profit / totalRecipeCost) * 100 if totalRecipeCost > 0 else 0
+sortBestBzItems = dict(
+    sorted(
+        bestBzItems.items(),
+        key=lambda x: (
+            # (x[1].roi / max(x[1].competitivenessScore, 0.1)) * x[1].profitPerHours
+            x[1].profitPerHours
+        ),
+    )
+)
+for key, value in sortBestBzItems.items():
+    print("-" * 30)
+    print(f"Item: {key}")
+    print(f"Net profit: {utils.format(value.profit)}")
+    print(f"Roi: {value.roi:.2f}")
+    print(f"Efficiency: {utils.format(value.profitPerHours)} coins/hour")
+    print(f"Market volume: {utils.format(value.targetItemVolume)} units listed")
+    print(
+        f"Competition Score: {value.competitivenessScore * 100} (lower is faster to sell)"
+    )
+    print(f"Crafting cost: {utils.format(value.totalRecipeCost)} coins")
 
-print("-" * 30)
-print(f"Cost: {utils.format(totalRecipeCost)}")
-print(f"Revenue: {utils.format(netRevue)}")
-print(f"Profit: {utils.format(profit)}")
-print(f"Volume: {utils.format(targetItemVolume)}")
-print(f"ROI: {roi:.2f}%")
 
-if profit > 0 and roi > 3:
-    print("good craft")
-else:
-    print("bad craft")
+stats = analyzeSingleCraft(
+    "ASPECT_OF_THE_END",
+    craftAmount,
+    dataManager,
+    bzProducts,
+    dataManager.itemRecipesDb,
+)
+utils.printPrettyStats("ASPECT_OF_THE_END", stats)
