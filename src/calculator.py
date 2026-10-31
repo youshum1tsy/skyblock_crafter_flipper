@@ -14,7 +14,6 @@ FORBIDDEN_RECIPE_ITEMS = {
 
 
 def get_recipe(itemId, itemsDb):
-
     if itemId in FORBIDDEN_RECIPE_ITEMS:
         return None
 
@@ -29,7 +28,6 @@ def get_recipe(itemId, itemsDb):
 
 
 def calculate_craft(itemId, amount, blockedItems, itemsDb, totalCost, craftSteps):
-
     if itemId in blockedItems:
         totalCost[itemId] = totalCost.get(itemId, 0) + amount
         return
@@ -42,24 +40,44 @@ def calculate_craft(itemId, amount, blockedItems, itemsDb, totalCost, craftSteps
         totalCost[itemId] = totalCost.get(itemId, 0) + amount
         return
 
-    itemsPerCraft = recipe.get("count", 1)
-
-    craftsNeeded = math.ceil(amount / itemsPerCraft)
+    itemsPerCraft = recipe.get("outputCount") or recipe.get("count", 1)
+    craftsNeeded = math.ceil(amount / max(itemsPerCraft, 1))
 
     totalProduced = craftsNeeded * itemsPerCraft
     craftSteps[itemId] = craftSteps.get(itemId, 0) + totalProduced
-    keys = ["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"]
-    for key, cell in recipe.items():
-        if key not in keys:
-            continue
-        if not isinstance(cell, str) or ":" not in cell:
-            continue
-        componentId, componentAmountStr = cell.split(":")
-        componentAmount = int(componentAmountStr)
-        totalNeeded = componentAmount * craftsNeeded
-        calculate_craft(
-            componentId, totalNeeded, blockedItems, itemsDb, totalCost, craftSteps
-        )
+
+    # 1. Чтение нормализованных рецептов (RecipeManager: "inputs": { "ID": count })
+    if "inputs" in recipe and isinstance(recipe["inputs"], dict):
+        for componentId, componentAmount in recipe["inputs"].items():
+            totalNeeded = componentAmount * craftsNeeded
+            calculate_craft(
+                componentId,
+                totalNeeded,
+                blockedItems,
+                itemsDb,
+                totalCost,
+                craftSteps,
+            )
+
+    # 2. Старый формат верстака (A1..C3)
+    else:
+        keys = ["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"]
+        for key, cell in recipe.items():
+            if key not in keys:
+                continue
+            if not isinstance(cell, str) or ":" not in cell:
+                continue
+            componentId, componentAmountStr = cell.split(":")
+            componentAmount = int(componentAmountStr)
+            totalNeeded = componentAmount * craftsNeeded
+            calculate_craft(
+                componentId,
+                totalNeeded,
+                blockedItems,
+                itemsDb,
+                totalCost,
+                craftSteps,
+            )
 
 
 def findCyclicItems(itemId, itemsDb, currentPath=None, blockedItems=None):
@@ -78,18 +96,20 @@ def findCyclicItems(itemId, itemsDb, currentPath=None, blockedItems=None):
 
     currentPath.append(itemId)
 
-    for cell in recipe.values():
-        if not isinstance(cell, str) or ":" not in cell:
-            continue
-        componentId, _ = cell.split(":")
-
-        findCyclicItems(
-            componentId,
-            itemsDb,
-            currentPath,
-            blockedItems,
-        )
+    if "inputs" in recipe and isinstance(recipe["inputs"], dict):
+        for componentId in recipe["inputs"].keys():
+            findCyclicItems(componentId, itemsDb, currentPath, blockedItems)
+    else:
+        for cell in recipe.values():
+            if not isinstance(cell, str) or ":" not in cell:
+                continue
+            componentId, _ = cell.split(":")
+            findCyclicItems(
+                componentId,
+                itemsDb,
+                currentPath,
+                blockedItems,
+            )
 
     currentPath.pop()
-
     return blockedItems
