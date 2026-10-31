@@ -332,3 +332,49 @@ class Data:
                 or ("_GENERATOR_" in item.get("id", ""))
             ):
                 self.notAuctionableIds.add(item.get("id"))
+
+
+def getAhCraftableWhitelist(self) -> list[str]:
+    """
+    Сканирует локальную базу рецептов и возвращает список ID предметов,
+    которые:
+    1. Имеют реальный рецепт (Верстак или Кузница).
+    2. НЕ продаются на Базаре (значит, торгуются на AH).
+    3. НЕ являются Soulbound / квестовыми / непередаваемыми.
+    """
+    bzProducts = set(self.data.itemBzPricesDb.get("products", {}).keys())
+    soulboundIds = self.data.notAuctionableIds
+
+    ahCandidates = set()
+
+    for itemName, recipes in self.data.itemRecipesDb.items():
+        for recipe in recipes:
+            targetId = recipe.get("outputId", itemName)
+
+            # 1. Отсекаем всё, что продается на Базаре
+            # (учитываем возможные префиксы типа INK_SACK:3)
+            baseBzKey = targetId.replace("-", ":") if "-" in targetId else targetId
+            if targetId in bzProducts or baseBzKey in bzProducts:
+                continue
+
+            # 2. Отсекаем Soulbound и непередаваемые предметы
+            if targetId in soulboundIds or baseBzKey in soulboundIds:
+                continue
+
+            # 3. Проверяем, что в рецепте есть реальные ингредиенты
+            inputs = recipe.get("inputs", {})
+            if not inputs or len(inputs) == 0:
+                continue
+
+            # Если проверка пройдена — это наш целевой предмет для AH
+            ahCandidates.add(targetId)
+
+    sortedList = sorted(list(ahCandidates))
+
+    # Сохраняем результат в файл для наглядности
+    whitelistPath = self.data.BASE_DIR / "ah_craftable_whitelist.json"
+    self.data.saveJson(
+        {"totalCount": len(sortedList), "items": sortedList}, whitelistPath
+    )
+
+    return sortedList
