@@ -46,11 +46,13 @@ def fetchItems(eTag: str) -> tuple[bytes | None, str | None]:
 
 def fetchAhPrices(findItem: str, skyCoflToken: str) -> dict:
     url = f"https://sky.coflnet.com/api/item/price/{findItem}"
-    headers = {"Authorization": f"Bearer {skyCoflToken}"}
+    headers = {"Authorization": f"Bearer {skyCoflToken}"} if skyCoflToken else {}
     filters = {"Clean": "yes"}
     try:
         r = requests.get(url, headers=headers, params=filters)
-        return r.json()
+        if r.status_code == 200:
+            return r.json()
+        return {}
     except requests.RequestException as e:
         print(f"Error with API, url: {url}, for item: {findItem}: {e}")
         return {}
